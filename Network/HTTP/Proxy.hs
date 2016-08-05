@@ -30,9 +30,11 @@ module Network.HTTP.Proxy
     , Request (..)
     , Settings (..)
     , UpstreamProxy (..)
-
+    , BasicAuthCreds(..)
     , runProxy
     , runProxySettings
+    , runProxySettingsWithMiddleWare
+    , runProxySettingsWithBasicAuth
     , runProxySettingsSocket
     , defaultProxySettings
     )
@@ -58,6 +60,7 @@ import qualified Network.HTTP.Client.Conduit as HCC
 import qualified Network.HTTP.Types as HT
 import qualified Network.Wai as Wai
 import qualified Network.Wai.Handler.Warp as Warp
+import Network.Wai.Middleware.HttpAuth (basicAuth)
 
 import Network.HTTP.Proxy.Request
 
@@ -70,6 +73,11 @@ httpProxyVersion = showVersion Paths_warp.version
 #endif
 
 
+data BasicAuthCreds = BasicAuthCreds
+  { userName :: ByteString
+  , password :: ByteString
+  }
+
 -- | Run a HTTP and HTTPS proxy server on the specified port. This calls
 -- 'runProxySettings' with 'defaultProxySettings'.
 runProxy :: Port -> IO ()
@@ -80,6 +88,19 @@ runProxySettings :: Settings -> IO ()
 runProxySettings set = do
     mgr <- HC.newManager HC.tlsManagerSettings
     Warp.runSettings (warpSettings set) $ proxyApp set mgr
+
+-- | Run a HTTP and HTTPS proxy server with the specified settings.
+runProxySettingsWithMiddleWare :: Settings -> Middleware -> IO ()
+runProxySettingsWithMiddleWare set mid = do
+    mgr <- HC.newManager HC.tlsManagerSettings
+    Warp.runSettings (warpSettings set) $ mid $ proxyApp set mgr
+
+runProxySettingsWithBasicAuth :: BasicAuthCreds -> Settings -> IO ()
+runProxySettingsWithBasicAuth creds set = runProxySettingsWithMiddleWare set ba
+  where
+    ba :: Middleware
+    ba = basicAuth (\u p -> return $ u == (userName creds) && p == (password creds)) "My Realm"
+
 
 -- | Run a HTTP and HTTPS proxy server with the specified settings but provide
 -- it with a Socket to accept connections on. The Socket should have already
